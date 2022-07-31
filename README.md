@@ -157,25 +157,6 @@ When we call `init()` we passed in ETH and $BAL tokens at a ratio of 1:1. As the
 
 Now, try to edit your DEX.sol smart contract and bring in a price function!
 
-<details markdown='1'><summary>👩🏽‍🏫 Solution Code</summary>
-
-```
-
-    function price(
-        uint256 xInput,
-        uint256 xReserves,
-        uint256 yReserves
-    ) public view returns (uint256 yOutput) {
-        uint256 xInputWithFee = xInput.mul(997);
-        uint256 numerator = xInputWithFee.mul(yReserves);
-        uint256 denominator = (xReserves.mul(1000)).add(xInputWithFee);
-        return (numerator / denominator);
-    }
-
-```
-
-</details>
-
 We use the ratio of the input vs output reserve to calculate the price to swap either asset for the other. Let’s deploy this and poke around:
 
 ```
@@ -218,39 +199,6 @@ Finally, let’s say the ratio is the same but we want to swap 100,000 tokens in
 
 Let’s edit the DEX.sol smart contract and add two new functions for swapping from each asset to the other, `ethToToken()` and `tokenToEth()`!
 
-<details markdown='1'><summary>👨🏻‍🏫 Solution Code </summary>
-
-```
-    /**
-     * @notice sends Ether to DEX in exchange for $BAL
-     */
-    function ethToToken() public payable returns (uint256 tokenOutput) {
-        require(msg.value > 0, "cannot swap 0 ETH");
-        uint256 ethReserve = address(this).balance.sub(msg.value);
-        uint256 token_reserve = token.balanceOf(address(this));
-        uint256 tokenOutput = price(msg.value, ethReserve, token_reserve);
-
-        require(token.transfer(msg.sender, tokenOutput), "ethToToken(): reverted swap.");
-        emit EthToTokenSwap(msg.sender, "Eth to Balloons", msg.value, tokenOutput);
-        return tokenOutput;
-    }
-
-    /**
-     * @notice sends $BAL tokens to DEX in exchange for Ether
-     */
-    function tokenToEth(uint256 tokenInput) public returns (uint256 ethOutput) {
-        require(tokenInput > 0, "cannot swap 0 tokens");
-        uint256 token_reserve = token.balanceOf(address(this));
-        uint256 ethOutput = price(tokenInput, token_reserve, address(this).balance);
-        require(token.transferFrom(msg.sender, address(this), tokenInput), "tokenToEth(): reverted swap.");
-        (bool sent, ) = msg.sender.call{ value: ethOutput }("");
-        require(sent, "tokenToEth: revert in transferring eth to you!");
-        emit TokenToEthSwap(msg.sender, "Balloons to ETH", ethOutput, tokenInput);
-        return ethOutput;
-    }
-```
-
-</details>
 
 > 💡 Each of these functions should calculate the resulting amount of output asset using our price function that looks at the ratio of the reserves vs the input asset. We can call tokenToEth and it will take our tokens and send us ETH or we can call ethToToken with some ETH in the transaction and it will send us $BAL tokens. Deploy it and try it out!
 
@@ -267,45 +215,6 @@ Let’s create two new functions that let us deposit and withdraw liquidity. How
 
 > 💡💡 _More Hints:_ The `withdraw()` function lets a user take both ETH and $BAL tokens out at the correct ratio. The actual amount of ETH and tokens a liquidity provider withdraws could be higher than what they deposited because of the 0.3% fees collected from each trade. It also could be lower depending on the price fluctuations of $BAL to ETH and vice versa (from token swaps taking place using your AMM!). The 0.3% fee incentivizes third parties to provide liquidity, but they must be cautious of [Impermanent Loss (IL)](https://www.youtube.com/watch?v=8XJ1MSTEuU0&t=2s&ab_channel=Finematics).
 
-<details markdown='1'><summary>👩🏽‍🏫 Solution Code </summary>
-
-```
-    function deposit() public payable returns (uint256 tokensDeposited) {
-        uint256 ethReserve = address(this).balance.sub(msg.value);
-        uint256 tokenReserve = token.balanceOf(address(this));
-        uint256 tokenDeposit;
-
-        tokenDeposit = (msg.value.mul(tokenReserve) / ethReserve).add(1);
-        uint256 liquidityMinted = msg.value.mul(totalLiquidity) / ethReserve;
-        liquidity[msg.sender] = liquidity[msg.sender].add(liquidityMinted);
-        totalLiquidity = totalLiquidity.add(liquidityMinted);
-
-        require(token.transferFrom(msg.sender, address(this), tokenDeposit));
-        emit LiquidityProvided(msg.sender, liquidityMinted, msg.value, tokenDeposit);
-        return tokenDeposit;
-    }
-
-    function withdraw(uint256 amount) public returns (uint256 eth_amount, uint256 token_amount) {
-        require(liquidity[msg.sender] >= amount, "withdraw: sender does not have enough liquidity to withdraw.");
-        uint256 ethReserve = address(this).balance;
-        uint256 tokenReserve = token.balanceOf(address(this));
-        uint256 ethWithdrawn;
-
-        ethWithdrawn = amount.mul(ethReserve) / totalLiquidity;
-
-        uint256 tokenAmount = amount.mul(tokenReserve) / totalLiquidity;
-        liquidity[msg.sender] = liquidity[msg.sender].sub(amount);
-        totalLiquidity = totalLiquidity.sub(amount);
-        (bool sent, ) = payable(msg.sender).call{ value: ethWithdrawn }("");
-        require(sent, "withdraw(): revert in transferring eth to you!");
-        require(token.transfer(msg.sender, tokenAmount));
-        emit LiquidityRemoved(msg.sender, amount, ethWithdrawn, tokenAmount);
-        return (ethWithdrawn, tokenAmount);
-    }
-
-```
-
- </details>
 
 Remember that you will need to call `approve()` from the `Balloons.sol` contract approving the DEX to handle a specific number of your $BAL tokens. To keep things simple, you can just do that when interacting with the UI or debug tab with your contract.
 
