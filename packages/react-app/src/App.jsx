@@ -59,7 +59,7 @@ const { ethers } = require("ethers");
 */
 
 /// 📡 What chain are your contracts deployed to?
-const initialNetwork = NETWORKS.localhost; // <------- select your target frontend network (localhost, rinkeby, xdai, mainnet)
+const initialNetwork = NETWORKS.goerli; // <------- select your target frontend network (localhost, rinkeby, xdai, mainnet)
 
 // 😬 Sorry for all the console logging
 const DEBUG = true;
@@ -486,9 +486,9 @@ function App(props) {
           />
         </div>
 
-        {yourLocalBalance.lte(ethers.BigNumber.from("0")) && (
+        {/* {yourLocalBalance.lte(ethers.BigNumber.from("0")) && ( */}
           <FaucetHint localProvider={localProvider} targetNetwork={targetNetwork} address={address} />
-        )}
+        {/* )} */}
 
         <TokenBalance name={"Balloons"} img={"🎈"} address={address} contracts={readContracts} />
         <h3>

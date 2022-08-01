@@ -89,18 +89,50 @@ contract DEX {
      * @notice sends Ether to DEX in exchange for $BAL
      */
     function ethToToken() public payable returns (uint256 tokenOutput) {
+        require(msg.value > 0, "Cannot swap 0 ETH");
         // get tokenReserves, ethReserves
+        uint256 tokenReserves = token.balanceOf(address(this));
+        uint256 ethReserves = address(this).balance;
         // get tokenOutput price based on ethInput, ethReserves, tokenReserves
+        uint256 tokenOutput = price(msg.value, ethReserves, tokenReserves);
+        // this shouldn't need to be called
+        // require(
+        //     tokenReserves > tokenOutput,
+        //     "Not enough tokenReserves available."
+        // );
+        // transfer $BAL tokens to the sender
+        require(
+            token.transfer(msg.sender, tokenOutput),
+            "token transfer unsuccessful"
+        );
+
         // return tokenOutput
+        return tokenOutput;
     }
 
     /**
      * @notice sends $BAL tokens to DEX in exchange for Ether
      */
-    function tokenToEth(uint256 tokenInput)
-        public
-        returns (uint256 ethOutput)
-    {}
+    function tokenToEth(uint256 tokenInput) public returns (uint256 ethOutput) {
+        // get tokenReserves, ethReserves
+        uint256 tokenReserves = token.balanceOf(address(this));
+        uint256 ethReserves = address(this).balance;
+        // get ethOutput price based on tokenInput, ethReserves, tokenReserves
+        ethOutput = price(tokenInput, tokenReserves, ethReserves);
+        // transfer token balance from sender to DEX
+        // transferFrom method returns bool indicating whether operation succeeded
+        // https://docs.openzeppelin.com/contracts/2.x/api/token/erc20#IERC20-transferFrom-address-address-uint256-
+        require(
+            token.transferFrom(msg.sender, address(this), tokenInput),
+            "token transfer unsuccessful"
+        );
+        // pay ETH to sender
+        // using call() instead of send() or transfer()
+        // https://consensys.github.io/smart-contract-best-practices/development-recommendations/general/external-calls/
+        (bool success, ) = msg.sender.call{value: ethOutput}("");
+        require(success, "eth not sent to sender");
+        return ethOutput;
+    }
 
     /**
      * @notice allows deposits of $BAL and $ETH to liquidity pool
@@ -108,7 +140,26 @@ contract DEX {
      * NOTE: user has to make sure to give DEX approval to spend their tokens on their behalf by calling approve function prior to this function call.
      * NOTE: Equal parts of both assets will be removed from the user's wallet with respect to the price outlined by the AMM.
      */
-    function deposit() public payable returns (uint256 tokensDeposited) {}
+    function deposit() public payable returns (uint256 tokensDeposited) {
+        // assuming I want each deposit to maintain the pre-existing ratio of BAL : ETH,
+        // even if it F's up k
+        require(msg.value > 0, "cannot deposit zero tokens");
+        uint256 ethReserve = address(this).balance.sub(msg.value);
+        uint256 tokenReserve = token.balanceOf(address(this));
+        uint256 tokenDeposit;
+
+        tokenDeposit = msg.value.mul(tokenReserve) / ethReserve;
+        // because of fees, liquidity might not be the same as reserves (liquidity should be lower)
+        uint256 liquidityMinted = msg.value.mul(totalLiquidity) / ethReserve;
+
+        liquidity[msg.sender] = liquidity[msg.sender].add(liquidityMinted);
+        totalLiquidity = totalLiquidity.add(liquidityMinted);
+        require(
+            token.transferFrom(msg.sender, address(this), tokenDeposit),
+            "token transfer from sender unsuccessful"
+        );
+        return tokenDeposit;
+    }
 
     /**
      * @notice allows withdrawal of $BAL and $ETH from liquidity pool
@@ -117,5 +168,35 @@ contract DEX {
     function withdraw(uint256 amount)
         public
         returns (uint256 eth_amount, uint256 token_amount)
-    {}
+    {
+        // ensure the amount requested is not greater than the amount they've put in
+        // calculate the amount of ETH to send them based on the token amount requested and the eth reserves
+        // adjust liquidity[msg.sender] and totalLiquidity
+        // transfer tokens, send eth via call
+        require(
+            liquidity[msg.sender] >= amount,
+            "can only take out of the DEX something LTE than what you put in!"
+        );
+
+        uint256 ethReserve = address(this).balance;
+        uint256 tokenReserve = token.balanceOf(address(this));
+        uint256 ethWithdrawal;
+
+        // use totalLiquidity b/c that excludes fees accrued by DEX and also
+        ethWithdrawal = amount.mul(ethReserve) / totalLiquidity;
+        // calculate the tokenAmount (which should be bigger than the amount) b/c it includes accrued fees
+        uint256 tokenAmount = amount.mul(tokenReserve) / totalLiquidity;
+        require(
+            address(this).balance > ethWithdrawal,
+            "not enough ETH in DEX to make withdrawal"
+        );
+
+        liquidity[msg.sender] = liquidity[msg.sender] - amount;
+        totalLiquidity = totalLiquidity - amount;
+        require(token.transfer(msg.sender, tokenAmount));
+
+        (bool success, ) = payable(msg.sender).call{value: ethWithdrawal}("");
+        require(success);
+        return (ethWithdrawal, tokenAmount);
+    }
 }
